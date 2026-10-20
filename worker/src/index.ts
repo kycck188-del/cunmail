@@ -174,21 +174,73 @@ const api = app.basePath('/api');
 
 // feat: 新增一个专门用于人机验证的接口。
 // 前端应在生成邮箱地址前先调用此接口。
+
 api.post('/verify', turnstile, async (c) => {
-  const body = c.get('parsedBody') as { domain?: string };
+  const body = c.get('parsedBody') as {
+    domain?: string;
+    prefix?: string;
+    randomLength?: number;
+  };
+
+  // 1. 验证域名：保留现有 EMAIL_DOMAIN 白名单机制
   const domain = body?.domain?.trim().toLowerCase();
-  if (!domain || !isAllowedMailboxAddress(`mailbox@${domain}`, c.env.EMAIL_DOMAIN)) {
+
+  if (
+    !domain ||
+    !isAllowedMailboxAddress(`mailbox@${domain}`, c.env.EMAIL_DOMAIN)
+  ) {
     return c.json({
       code: 'INVALID_MAILBOX',
       message: 'Mailbox domain is not configured',
     }, 400);
   }
-  const mailbox = `${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}@${domain}`;
 
+  // 2. 自定义前缀或随机前缀
+  let localPart: string;
+
+  if (body.prefix !== undefined && body.prefix !== '') {
+    // 自定义前缀：仅允许英文字母和数字，长度 1–32 位
+    const prefix = body.prefix.trim();
+
+    if (!/^[a-zA-Z0-9]{1,32}$/.test(prefix)) {
+      return c.json({
+        code: 'INVALID_PREFIX',
+        message: 'Prefix must contain only English letters and numbers, with a length of 1 to 32 characters',
+      }, 400);
+    }
+
+    localPart = prefix.toLowerCase();
+  } else {
+    // 随机前缀：仅允许选择 6、8、10、12 位
+    const allowedLengths = [6, 8, 10, 12];
+    const requestedLength = body.randomLength ?? 8;
+
+    if (!allowedLengths.includes(requestedLength)) {
+      return c.json({
+        code: 'INVALID_RANDOM_LENGTH',
+        message: 'Random length must be 6, 8, 10, or 12',
+      }, 400);
+    }
+
+    // 使用安全随机数生成十六进制前缀
+    const bytes = crypto.getRandomValues(
+      new Uint8Array(requestedLength)
+    );
+
+    localPart = Array.from(
+      bytes,
+      (byte) => (byte % 16).toString(16)
+    ).join('');
+  }
+
+  const mailbox = `${localPart}@${domain}`;
+
+  // 3. 保留现有统计逻辑
   const db = getD1DB(c.env.DB);
   await incrementAddressesCreated(db);
   await incrementDailyAddressesCreated(db);
 
+  // 4. 保留现有 mailboxToken 授权令牌机制
   const mailboxToken = c.env.MAILBOX_TOKEN_SECRET
     ? await createMailboxToken(
         mailbox,
@@ -198,6 +250,7 @@ api.post('/verify', turnstile, async (c) => {
       )
     : undefined;
 
+  // 5. 保留原有响应字段，兼容现有前端
   return c.json({
     success: true,
     bypassed: !isTurnstileEnabled(c.env),
@@ -205,6 +258,7 @@ api.post('/verify', turnstile, async (c) => {
     mailboxToken,
   });
 });
+
 
 api.post('/mailbox-token/refresh', async (c) => {
   if (!c.env.MAILBOX_TOKEN_SECRET) {
