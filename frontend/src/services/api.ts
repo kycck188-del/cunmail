@@ -48,21 +48,44 @@ export interface MailboxAuthorizationResponse {
   mailboxToken?: string;
 }
 
+
 export async function verifyTurnstile(
   domain: string,
   token?: string,
+  prefix?: string,
+  randomLength: 6 | 8 | 10 | 12 = 8,
 ): Promise<MailboxAuthorizationResponse> {
+  const body: {
+    domain: string;
+    token?: string;
+    prefix?: string;
+    randomLength?: number;
+  } = { domain };
+
+  if (token) {
+    body.token = token;
+  }
+
+  if (prefix !== undefined && prefix.trim() !== "") {
+    body.prefix = prefix.trim();
+  } else {
+    body.randomLength = randomLength;
+  }
+
   const response = await fetch(`${API_BASE_URL}/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(token ? { token, domain } : { domain }),
+    body: JSON.stringify(body),
   });
+
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.message || "Turnstile verification failed");
   }
+
   return response.json();
 }
+
 
 // feat: 添加获取单封邮件详情的函数
 export async function getEmailById(id: string): Promise<Email> {
