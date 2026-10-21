@@ -588,39 +588,37 @@ api.post('/delete-emails', async (c) => {
 
 // 修复：移除登录接口的 turnstile 中间件，使其不再需要人机验证。
 api.post('/login', async (c) => {
-  // const db = getD1DB(c.env.DB); // 数据库连接不再需要用于验证
-  // 修复：由于移除了 turnstile 中间件，现在需要在此处直接解析请求体。
-  const body = await c.req.json();
+  let body: { password?: string };
+
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ message: 'Invalid request body' }, 400);
+  }
+
   const password = body?.password;
 
-  if (!password) {
+  if (typeof password !== 'string' || !password) {
     return c.json({ message: 'Password is required' }, 400);
   }
 
   try {
     // 解密密码以获取邮箱地址
     const address = decrypt(password, c.env.COOKIES_SECRET);
-    
-    // **核心修复**：移除数据库邮件检查逻辑
-    // 不再需要查询数据库中是否存在该地址的邮件
-    // const emails = await getEmailsByMessageTo(db, address);
-    // if (emails.length === 0) {
-      // 如果该地址从未收到过邮件，则视为无效密码
-      // return c.json({ message: 'Invalid password' }, 404);
-    // }
 
-    // 可选：添加一个简单的邮箱地址格式校验，增加健壮性
-    // 例如，检查是否包含 '@' 符号
-    if (!address || typeof address !== 'string' || !address.includes('@')) {
-        console.error("解密后的地址格式无效:", address);
-        return c.json({ message: 'Invalid password' }, 400); // 地址格式不对也视为密码无效
+    // 验证邮箱地址是否属于配置的允许域名
+    if (
+      !address ||
+      typeof address !== 'string' ||
+      !isAllowedMailboxAddress(address, c.env.EMAIL_DOMAIN)
+    ) {
+      return c.json({ message: 'Invalid password' }, 400);
     }
 
-    // Legacy passwords are client-derived and therefore cannot prove send ownership.
+    // 返回邮箱地址，不签发邮箱访问令牌
     return c.json({ address });
   } catch (e) {
-    console.error("Login error:", e);
-    // 如果解密失败或发生其他错误，返回无效密码错误
+    console.error('Login error:', e);
     return c.json({ message: 'Invalid password' }, 400);
   }
 });
