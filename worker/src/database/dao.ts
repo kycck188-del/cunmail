@@ -318,6 +318,39 @@ export async function deleteMailboxMessage(
 }
 
 /**
+ * 按邮箱地址限制批量删除邮件。
+ * 只会删除同时匹配邮件 ID 和收件人地址的记录。
+ */
+export async function deleteMailboxMessages(
+  db: DrizzleD1Database,
+  address: string,
+  ids: string[],
+) {
+  if (!address || !Array.isArray(ids) || ids.length === 0) {
+    return { count: 0 };
+  }
+
+  try {
+    const uniqueIds = [...new Set(ids)];
+
+    const result = await db
+      .delete(emails)
+      .where(
+        and(
+          eq(emails.messageTo, address),
+          inArray(emails.id, uniqueIds),
+        ),
+      )
+      .execute();
+
+    return { count: result.rowsAffected };
+  } catch (e) {
+    console.error('deleteMailboxMessages error:', e);
+    throw e;
+  }
+}
+
+/**
  * 获取邮箱的邮件数量
  */
 export async function getMailboxMessageCount(
