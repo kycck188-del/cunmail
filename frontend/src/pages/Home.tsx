@@ -100,7 +100,7 @@ export function Home() {
   } = useQuery<Email[], Error>({
     queryKey: ["emails", address, mailboxToken],
     queryFn: () => getEmails(address!, 50, mailboxToken),
-    enabled: !!address,
+    enabled: !!address && !!mailboxToken,
     refetchInterval: false,
     retry: false,
   });
@@ -118,7 +118,7 @@ export function Home() {
   const { data: mailboxMeta } = useQuery({
     queryKey: ["emails-meta", address, mailboxToken],
     queryFn: () => getMailboxMeta(address!, mailboxToken),
-    enabled: !!address,
+    enabled: !!address && !!mailboxToken,
     refetchInterval: () =>
       document.visibilityState === "visible" ? 10000 : false,
     refetchIntervalInBackground: false,
