@@ -2,7 +2,26 @@
 import type { Email } from "../database_types";
 
 const API_BASE_URL = "/api";
+function getMailboxAuthHeaders(
+  mailboxToken?: string,
+  includeContentType = false,
+): Record<string, string> {
+  if (!mailboxToken?.trim()) {
+    throw new Error(
+      "Mailbox authorization is missing. Please create or restore your mailbox session.",
+    );
+  }
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${mailboxToken}`,
+  };
+
+  if (includeContentType) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
+}
 // fix: 移除不再需要的 ApiPayload 接口定义
 
 // 获取邮件列表
@@ -13,13 +32,7 @@ export async function getEmails(
   limit: number = 50,
   mailboxToken?: string,
 ): Promise<Email[]> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (mailboxToken) {
-    headers.Authorization = `Bearer ${mailboxToken}`;
-  }
+ const headers = getMailboxAuthHeaders(mailboxToken, true);
 
   const response = await fetch(`${API_BASE_URL}/emails`, {
     method: "POST",
@@ -45,13 +58,7 @@ export async function getMailboxMeta(
   address: string,
   mailboxToken?: string,
 ): Promise<MailboxMeta> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (mailboxToken) {
-    headers.Authorization = `Bearer ${mailboxToken}`;
-  }
+const headers = getMailboxAuthHeaders(mailboxToken, true);
 
   const response = await fetch(`${API_BASE_URL}/emails/meta`, {
     method: "POST",
@@ -112,11 +119,7 @@ export async function getEmailById(
   id: string,
   mailboxToken?: string,
 ): Promise<Email> {
-  const headers: Record<string, string> = {};
-
-  if (mailboxToken) {
-    headers.Authorization = `Bearer ${mailboxToken}`;
-  }
+ const headers = getMailboxAuthHeaders(mailboxToken);
 
   const response = await fetch(
     `${API_BASE_URL}/emails/${encodeURIComponent(id)}`,
@@ -138,13 +141,7 @@ export async function deleteEmails(
   ids: string[],
   mailboxToken?: string,
 ): Promise<{ count: number }> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (mailboxToken) {
-    headers.Authorization = `Bearer ${mailboxToken}`;
-  }
+  const headers = getMailboxAuthHeaders(mailboxToken, true);
 
   const response = await fetch(`${API_BASE_URL}/delete-emails`, {
     method: "POST",
