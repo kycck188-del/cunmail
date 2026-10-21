@@ -7,46 +7,65 @@ const API_BASE_URL = "/api";
 
 // 获取邮件列表
 // fix: 移除 getEmails 函数中的 token 参数，因为后端已不再需要它
+
 export async function getEmails(
   address: string,
   limit: number = 50,
+  mailboxToken?: string,
 ): Promise<Email[]> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (mailboxToken) {
+    headers.Authorization = `Bearer ${mailboxToken}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}/emails`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    // fix: 请求体中只发送 address
+    headers,
     body: JSON.stringify({ address, limit }),
   });
+
   if (!response.ok) {
     throw new Error("Network response was not ok");
   }
+
   return response.json();
 }
+
 
 export interface MailboxMeta {
   count: number;
   latestEmailCreatedAt: string | null;
 }
 
-export async function getMailboxMeta(address: string): Promise<MailboxMeta> {
+
+export async function getMailboxMeta(
+  address: string,
+  mailboxToken?: string,
+): Promise<MailboxMeta> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (mailboxToken) {
+    headers.Authorization = `Bearer ${mailboxToken}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}/emails/meta`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ address }),
   });
+
   if (!response.ok) {
     throw new Error("Failed to fetch mailbox meta");
   }
+
   return response.json();
 }
 
-// feat: 新增函数，用于在创建邮箱前验证人机校验token
-export interface MailboxAuthorizationResponse {
-  success: boolean;
-  bypassed?: boolean;
-  mailbox: string;
-  mailboxToken?: string;
-}
 
 
 export async function verifyTurnstile(
@@ -88,13 +107,29 @@ export async function verifyTurnstile(
 
 
 // feat: 添加获取单封邮件详情的函数
-export async function getEmailById(id: string): Promise<Email> {
-  const response = await fetch(`${API_BASE_URL}/emails/${id}`);
+
+export async function getEmailById(
+  id: string,
+  mailboxToken?: string,
+): Promise<Email> {
+  const headers: Record<string, string> = {};
+
+  if (mailboxToken) {
+    headers.Authorization = `Bearer ${mailboxToken}`;
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/emails/${encodeURIComponent(id)}`,
+    { headers },
+  );
+
   if (!response.ok) {
     throw new Error("Failed to fetch email");
   }
+
   return response.json();
 }
+
 
 // 删除邮件
 // fix: 移除 deleteEmails 函数中的 token 参数
