@@ -13,7 +13,7 @@ import {
   getMailboxMeta,
   deleteEmails,
   loginByPassword,
-  refreshMailboxToken,
+
   verifyTurnstile,
 } from "../services/api.ts";
 import { useConfig } from "../hooks/useConfig.ts";
@@ -56,9 +56,7 @@ export function Home() {
   const [address, setAddress] = useState<string | undefined>(() =>
     Cookies.get("userMailbox"),
   );
-  const [mailboxToken, setMailboxToken] = useState<string>(
-    () => Cookies.get("mailboxToken") || "",
-  );
+
   const [expiryTimestamp, setExpiryTimestamp] = useState<number | undefined>(
     () => {
       const expiry = Cookies.get("emailExpiry");
@@ -92,18 +90,18 @@ export function Home() {
   const canSendEmails = Boolean(address && mailboxToken && config.sendChannel);
 
   const {
-    data: emails = [],
-    isLoading,
-    isFetching,
-    refetch,
-    error: emailsError,
-  } = useQuery<Email[], Error>({
-    queryKey: ["emails", address, mailboxToken],
-    queryFn: () => getEmails(address!, 50, mailboxToken),
-    enabled: !!address && !!mailboxToken,
-    refetchInterval: false,
-    retry: false,
-  });
+  data: emails = [],
+  isLoading,
+  isFetching,
+  refetch,
+  error: emailsError,
+} = useQuery<Email[], Error>({
+  queryKey: ["emails", address],
+  queryFn: () => getEmails(address!, 50),
+  enabled: !!address,
+  refetchInterval: false,
+  retry: false,
+});
 
   useEffect(() => {
     if (emailsError) {
@@ -116,9 +114,9 @@ export function Home() {
   const mailboxMetaSignatureRef = useRef<string | null>(null);
 
   const { data: mailboxMeta } = useQuery({
-    queryKey: ["emails-meta", address, mailboxToken],
-    queryFn: () => getMailboxMeta(address!, mailboxToken),
-    enabled: !!address && !!mailboxToken,
+    queryKey: ["emails-meta", address],
+    queryFn: () => getMailboxMeta(address!),
+    enabled: !!address,
     refetchInterval: () =>
       document.visibilityState === "visible" ? 10000 : false,
     refetchIntervalInBackground: false,
@@ -248,18 +246,11 @@ const handleCreateAddress = async () => {
     const cookieExpires = new Date(expires);
 
     Cookies.set("userMailbox", mailbox, { expires: cookieExpires });
-    Cookies.set("emailExpiry", expires.toString(), { expires: cookieExpires });
-
-    if (authorization.mailboxToken) {
-      Cookies.set("mailboxToken", authorization.mailboxToken, {
-        expires: cookieExpires,
-      });
-    } else {
-      Cookies.remove("mailboxToken");
-    }
+    Cookies.set("emailExpiry", expires.toString(), {
+      expires: cookieExpires,
+    });
 
     setAddress(mailbox);
-    setMailboxToken(authorization.mailboxToken || "");
     setExpiryTimestamp(expires);
     setHasReceivedEmail(false);
 
@@ -278,17 +269,20 @@ const handleCreateAddress = async () => {
 };
 
 
-  const handleStopAddress = () => {
+    const handleStopAddress = () => {
     Cookies.remove("userMailbox");
     Cookies.remove("mailboxToken");
     Cookies.remove("emailExpiry");
+
     setAddress(undefined);
-    setMailboxToken("");
     mailboxMetaSignatureRef.current = null;
     setHasReceivedEmail(false);
     setSelectedEmail(null);
+    setSelectedIds([]);
     setExpiryTimestamp(undefined);
+
     queryClient.invalidateQueries({ queryKey: ["emails"] });
+    queryClient.invalidateQueries({ queryKey: ["emails-meta"] });
   };
 
   const handleRefresh = () => {
@@ -296,18 +290,9 @@ const handleCreateAddress = async () => {
     toast.success(t("Mailbox refreshed"));
   };
 
-  const handleResetExpiry = useCallback(async () => {
-    if (mailboxToken) {
-      try {
-        const refreshedToken = await refreshMailboxToken(mailboxToken);
-        const newExpiry = Date.now() + validityMs;
-        const cookieExpires = new Date(newExpiry);
-        Cookies.set("mailboxToken", refreshedToken, { expires: cookieExpires });
-        setMailboxToken(refreshedToken);
-      } catch {
-        toast.error(t("SEND_UNAUTHORIZED"));
-        return;
-      }
+    const handleResetExpiry = useCallback(() => {
+    if (!address) {
+      return;
     }
 
     const newExpiry = Date.now() + validityMs;
@@ -316,13 +301,15 @@ const handleCreateAddress = async () => {
     Cookies.set("emailExpiry", newExpiry.toString(), {
       expires: cookieExpires,
     });
-    Cookies.set("userMailbox", address!, { expires: cookieExpires });
+    Cookies.set("userMailbox", address, {
+      expires: cookieExpires,
+    });
+
     setExpiryTimestamp(newExpiry);
     toast.success(t("Validity reset successfully"));
-  }, [mailboxToken, validityMs, address, t]);
-
+  }, [validityMs, address, t]);
   const deleteMutation = useMutation({
-    mutationFn: (ids: string[]) => deleteEmails(ids, mailboxToken),
+    mutationFn: (ids: string[]) => deleteEmails(ids, address!),
     onSuccess: () => {
       toast.success(t("Emails deleted successfully"));
       setSelectedIds([]);
@@ -344,6 +331,7 @@ const handleCreateAddress = async () => {
     deleteMutation.mutate(ids);
   };
 
+
   const handleLogin = async (password: string) => {
     setIsLoggingIn(true);
     try {
@@ -351,15 +339,16 @@ const handleCreateAddress = async () => {
       const now = Date.now();
       const expires = now + validityMs;
       const cookieExpires = new Date(expires);
-      Cookies.set("userMailbox", data.address, { expires: cookieExpires });
-      Cookies.set("emailExpiry", expires.toString(), { expires: cookieExpires });
-      if (data.mailboxToken) {
-        Cookies.set("mailboxToken", data.mailboxToken, { expires: cookieExpires });
-      } else {
-        Cookies.remove("mailboxToken");
-      }
+
+      Cookies.set("userMailbox", data.address, {
+        expires: cookieExpires,
+      });
+      Cookies.set("emailExpiry", expires.toString(), {
+        expires: cookieExpires,
+      });
+      Cookies.remove("mailboxToken");
+
       setAddress(data.address);
-      setMailboxToken(data.mailboxToken || "");
       setExpiryTimestamp(expires);
       setShowPasswordModal(false);
       toast.success(t("Login successful"));
@@ -369,6 +358,7 @@ const handleCreateAddress = async () => {
       setIsLoggingIn(false);
     }
   };
+
 
   const requestNotificationPermission = useCallback(async () => {
     if (!("Notification" in window)) {
