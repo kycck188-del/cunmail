@@ -83,11 +83,11 @@ export function Home() {
   const { PasswordModal, setShowPasswordModal } = usePasswordModal();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const { SenderModal, setShowSenderModal } = useSenderModal(
-    address || "",
-    mailboxToken,
-  );
-  const canSendEmails = Boolean(address && mailboxToken && config.sendChannel);
+const { SenderModal, setShowSenderModal } = useSenderModal(
+  address || "",
+  "",
+);
+const canSendEmails = false;
 
   const {
   data: emails = [],
@@ -883,7 +883,9 @@ const handleCreateAddress = async () => {
             onCloseDetail={handleCloseDetail}
             onExpand={handleExpandEmail}
             canSendEmails={canSendEmails}
-            onOpenSender={() => setShowSenderModal(true)}
+            onOpenSender={() => {
+  toast.error("发件功能暂未开放");
+}}
           />
         </div>
       </div>
