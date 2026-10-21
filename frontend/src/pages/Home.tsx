@@ -66,6 +66,8 @@ export function Home() {
     },
   );
   const [turnstileToken, setTurnstileToken] = useState<string>("");
+  const [customPrefix, setCustomPrefix] = useState("");
+  const [randomLength, setRandomLength] = useState<6 | 8 | 10 | 12>(8);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string>(
@@ -216,40 +218,65 @@ export function Home() {
     prevEmailsLength.current = emails.length;
   }, [emails, address, hasReceivedEmail, expiryTimestamp]);
 
-  const handleCreateAddress = async () => {
-    const requireTurnstile = config.turnstileEnabled;
+  
+const handleCreateAddress = async () => {
+  const requireTurnstile = config.turnstileEnabled;
+  const prefix = customPrefix.trim();
 
-    if (requireTurnstile && !turnstileToken) {
-      toast.error(t("No captcha response"));
-      return;
+  if (requireTurnstile && !turnstileToken) {
+    toast.error(t("No captcha response"));
+    return;
+  }
+
+  // 自定义前缀只允许英文字母和数字
+  if (prefix && !/^[a-zA-Z0-9]{1,32}$/.test(prefix)) {
+    toast.error("前缀只能包含英文字母和数字，长度为 1–32 位");
+    return;
+  }
+
+  try {
+    const authorization = await verifyTurnstile(
+      selectedDomain,
+      requireTurnstile ? turnstileToken : undefined,
+      prefix || undefined,
+      randomLength,
+    );
+
+    const mailbox = authorization.mailbox;
+    const now = Date.now();
+    const expires = now + validityMs;
+    const cookieExpires = new Date(expires);
+
+    Cookies.set("userMailbox", mailbox, { expires: cookieExpires });
+    Cookies.set("emailExpiry", expires.toString(), { expires: cookieExpires });
+
+    if (authorization.mailboxToken) {
+      Cookies.set("mailboxToken", authorization.mailboxToken, {
+        expires: cookieExpires,
+      });
+    } else {
+      Cookies.remove("mailboxToken");
     }
 
-    try {
-      const authorization = await verifyTurnstile(
-        selectedDomain,
-        requireTurnstile ? turnstileToken : undefined,
-      );
-      const mailbox = authorization.mailbox;
-      const now = Date.now();
-      const expires = now + validityMs;
-      const cookieExpires = new Date(expires);
-      Cookies.set("userMailbox", mailbox, { expires: cookieExpires });
-      Cookies.set("emailExpiry", expires.toString(), { expires: cookieExpires });
-      if (authorization.mailboxToken) {
-        Cookies.set("mailboxToken", authorization.mailboxToken, { expires: cookieExpires });
-      } else {
-        Cookies.remove("mailboxToken");
-      }
-      setAddress(mailbox);
-      setMailboxToken(authorization.mailboxToken || "");
-      setExpiryTimestamp(expires);
-      setHasReceivedEmail(false);
-      toast.success(t("Email created successfully"));
-    } catch (error) {
-      toast.error(t("Failed to verify captcha"));
-      console.error("Turnstile verification failed:", error);
-    }
-  };
+    setAddress(mailbox);
+    setMailboxToken(authorization.mailboxToken || "");
+    setExpiryTimestamp(expires);
+    setHasReceivedEmail(false);
+
+    // 创建成功后清空自定义前缀，方便下次重新输入
+    setCustomPrefix("");
+
+    toast.success(t("Email created successfully"));
+  } catch (error) {
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : t("Failed to verify captcha"),
+    );
+    console.error("Mailbox creation failed:", error);
+  }
+};
+
 
   const handleStopAddress = () => {
     Cookies.remove("userMailbox");
@@ -641,7 +668,57 @@ export function Home() {
                   ))}
                 </select>
               </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-2 font-medium">
+                  自定义邮箱前缀（可选）
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={customPrefix}
+                    onChange={(e) =>
+                      setCustomPrefix(
+                        e.target.value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32)
+                      )
+                    }
+                    placeholder="例如 hello2026"
+                    maxLength={32}
+                    className="min-w-0 flex-1 p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/50 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                  />
+                  <span className="text-sm text-slate-400">
+                    @{selectedDomain}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500 mt-2">
+                  留空则随机生成邮箱前缀
+                </div>
+              </div>
 
+              {!customPrefix.trim() && (
+                <div>
+                  <div className="text-xs text-slate-400 mb-2 font-medium">
+                    随机前缀长度
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[6, 8, 10, 12].map((length) => (
+                      <button
+                        key={length}
+                        type="button"
+                        onClick={() =>
+                          setRandomLength(length as 6 | 8 | 10 | 12)
+                        }
+                        className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                          randomLength === length
+                            ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white"
+                            : "bg-slate-800/50 border border-slate-700/50 text-slate-400"
+                        }`}
+                      >
+                        {length} 位
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="text-xs text-slate-400 mb-2 font-medium">
                   {t("Validity period")}
