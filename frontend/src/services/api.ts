@@ -47,7 +47,11 @@ export async function getMailboxMeta(
 }
 
 
-
+export interface MailboxAuthorizationResponse {
+  success: boolean;
+  bypassed?: boolean;
+  mailbox: string;
+}
 export async function verifyTurnstile(
   domain: string,
   token?: string,
@@ -124,10 +128,11 @@ export async function deleteEmails(
 
 // feat: 添加密码登录函数
 // fix: 移除 token 参数，因为登录流程不再需要人机验证
-export async function loginByPassword(password: string): Promise<{
-  address: string;
-  mailboxToken?: string;
-}> {
+
+export async function loginByPassword(
+  password: string,
+): Promise<{ address: string }> {
+
   const response = await fetch(`${API_BASE_URL}/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
