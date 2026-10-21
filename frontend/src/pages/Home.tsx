@@ -322,7 +322,7 @@ const handleCreateAddress = async () => {
   }, [mailboxToken, validityMs, address, t]);
 
   const deleteMutation = useMutation({
-    mutationFn: (ids: string[]) => deleteEmails(ids, mailboxToken),,
+    mutationFn: (ids: string[]) => deleteEmails(ids, mailboxToken),
     onSuccess: () => {
       toast.success(t("Emails deleted successfully"));
       setSelectedIds([]);
