@@ -98,8 +98,8 @@ export function Home() {
     refetch,
     error: emailsError,
   } = useQuery<Email[], Error>({
-    queryKey: ["emails", address],
-    queryFn: () => getEmails(address!, 50),
+    queryKey: ["emails", address, mailboxToken],
+    queryFn: () => getEmails(address!, 50, mailboxToken),
     enabled: !!address,
     refetchInterval: false,
     retry: false,
@@ -116,8 +116,8 @@ export function Home() {
   const mailboxMetaSignatureRef = useRef<string | null>(null);
 
   const { data: mailboxMeta } = useQuery({
-    queryKey: ["emails-meta", address],
-    queryFn: () => getMailboxMeta(address!),
+    queryKey: ["emails-meta", address, mailboxToken],
+    queryFn: () => getMailboxMeta(address!, mailboxToken),
     enabled: !!address,
     refetchInterval: () =>
       document.visibilityState === "visible" ? 10000 : false,
