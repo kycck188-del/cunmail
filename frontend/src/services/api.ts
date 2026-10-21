@@ -2,41 +2,17 @@
 import type { Email } from "../database_types";
 
 const API_BASE_URL = "/api";
-function getMailboxAuthHeaders(
-  mailboxToken?: string,
-  includeContentType = false,
-): Record<string, string> {
-  if (!mailboxToken?.trim()) {
-    throw new Error(
-      "Mailbox authorization is missing. Please create or restore your mailbox session.",
-    );
-  }
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${mailboxToken}`,
-  };
-
-  if (includeContentType) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  return headers;
-}
 // fix: 移除不再需要的 ApiPayload 接口定义
 
-// 获取邮件列表
-// fix: 移除 getEmails 函数中的 token 参数，因为后端已不再需要它
-
+// 获取邮件列表：通过邮箱地址查询，不需要邮箱访问令牌
 export async function getEmails(
   address: string,
   limit: number = 50,
-  mailboxToken?: string,
 ): Promise<Email[]> {
- const headers = getMailboxAuthHeaders(mailboxToken, true);
-
   const response = await fetch(`${API_BASE_URL}/emails`, {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address, limit }),
   });
 
@@ -53,16 +29,13 @@ export interface MailboxMeta {
   latestEmailCreatedAt: string | null;
 }
 
-
+// 获取邮箱统计信息：不需要邮箱访问令牌
 export async function getMailboxMeta(
   address: string,
-  mailboxToken?: string,
 ): Promise<MailboxMeta> {
-const headers = getMailboxAuthHeaders(mailboxToken, true);
-
   const response = await fetch(`${API_BASE_URL}/emails/meta`, {
     method: "POST",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address }),
   });
 
@@ -113,17 +86,13 @@ export async function verifyTurnstile(
 }
 
 
-// feat: 添加获取单封邮件详情的函数
-
+// 获取单封邮件详情：使用邮箱地址和邮件 ID 查询
 export async function getEmailById(
   id: string,
-  mailboxToken?: string,
+  address: string,
 ): Promise<Email> {
- const headers = getMailboxAuthHeaders(mailboxToken);
-
   const response = await fetch(
-    `${API_BASE_URL}/emails/${encodeURIComponent(id)}`,
-    { headers },
+    `${API_BASE_URL}/emails/${encodeURIComponent(id)}?address=${encodeURIComponent(address)}`,
   );
 
   if (!response.ok) {
@@ -134,19 +103,15 @@ export async function getEmailById(
 }
 
 
-// 删除邮件
-// fix: 移除 deleteEmails 函数中的 token 参数
-
+// 删除邮件：通过邮箱地址和邮件 ID 删除
 export async function deleteEmails(
   ids: string[],
-  mailboxToken?: string,
+  address: string,
 ): Promise<{ count: number }> {
-  const headers = getMailboxAuthHeaders(mailboxToken, true);
-
   const response = await fetch(`${API_BASE_URL}/delete-emails`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ ids }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, ids }),
   });
 
   if (!response.ok) {
