@@ -83,10 +83,7 @@ export function Home() {
   const { PasswordModal, setShowPasswordModal } = usePasswordModal();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-const { SenderModal, setShowSenderModal } = useSenderModal(
-  address || "",
-  "",
-);
+const { SenderModal } = useSenderModal(address || "", "");
 const canSendEmails = false;
 
   const {
