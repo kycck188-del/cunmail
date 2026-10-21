@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/cloudflare-workers';
 import { cors } from 'hono/cors';
 // 导入数据库相关的模块
-import { deleteEmails, findEmailById, getEmailsByMessageTo, insertEmail, deleteExpiredEmails, insertApiKey, getSiteStats, incrementEmailsReceived, incrementApiKeysCreated, incrementAddressesCreated, incrementDailyAddressesCreated, incrementDailyEmailsReceived, incrementDailyApiKeysCreated, getMailboxMetaByAddress, incrementAndGetApiRateWindowCount } from './database/dao';
+import {   deleteMailboxMessages,   findMailboxMessage,   getEmailsByMessageTo,   insertEmail,   deleteExpiredEmails,   insertApiKey,   getSiteStats,   incrementEmailsReceived,   incrementApiKeysCreated,   incrementAddressesCreated,   incrementDailyAddressesCreated,   incrementDailyEmailsReceived,   incrementDailyApiKeysCreated,   getMailboxMetaByAddress,   incrementAndGetApiRateWindowCount, } from './database/dao';
 import { getD1DB } from './database/db';
 import { InsertEmail, insertEmailSchema } from './database/schema';
 import { nanoid } from 'nanoid/non-secure';
@@ -442,66 +442,212 @@ api.post('/api-keys', requireOpenApi, turnstile, async (c) => {
 
 // fix: 移除获取邮件列表接口的 turnstile 验证。
 // 这个接口现在是公开的，刷新收件箱时可以直接调用，不再需要重复验证。
+// 获取邮件列表：必须通过邮箱令牌验证
 api.post('/emails', async (c) => {
-  const db = getD1DB(c.env.DB);
-  let body: any;
-  try {
-    body = await c.req.json();
-  } catch (e) {
-    return c.json({ message: '错误的请求：请求体无效或为空。' }, 400);
+  if (!c.env.MAILBOX_TOKEN_SECRET) {
+    return c.json({
+      code: 'MAILBOX_AUTH_UNAVAILABLE',
+      message: 'Mailbox authorization is unavailable',
+    }, 503);
   }
-  const address = body?.address;
-  const limit = Number.parseInt(body?.limit ?? '', 10);
 
-  if (!address) {
-    return c.json({ message: 'address is required' }, 400);
+  const token = getBearerToken(c.req.header('Authorization'));
+  const mailbox = token
+    ? await verifyMailboxToken(token, c.env.MAILBOX_TOKEN_SECRET)
+    : null;
+
+  if (
+    !mailbox ||
+    !isAllowedMailboxAddress(mailbox, c.env.EMAIL_DOMAIN)
+  ) {
+    return c.json({
+      code: 'MAILBOX_UNAUTHORIZED',
+      message: 'Mailbox authorization is invalid or expired',
+    }, 401);
   }
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 50;
-  const emails = await getEmailsByMessageTo(db, address as string, safeLimit);
-  return c.json(emails);
-});
 
-api.post('/emails/meta', async (c) => {
-  const db = getD1DB(c.env.DB);
-  let body: any;
+  let body: { address?: string; limit?: number };
   try {
     body = await c.req.json();
   } catch {
-    return c.json({ message: '错误的请求：请求体无效或为空。' }, 400);
+    return c.json({
+      message: '错误的请求：请求体无效或为空。',
+    }, 400);
   }
 
-  const address = body?.address;
-  if (!address) {
-    return c.json({ message: 'address is required' }, 400);
+  // 请求中的地址必须与令牌绑定的邮箱一致
+  const address = body.address?.trim().toLowerCase();
+  if (address !== mailbox.toLowerCase()) {
+    return c.json({
+      code: 'MAILBOX_FORBIDDEN',
+      message: 'Mailbox does not match authorization',
+    }, 403);
   }
 
-  const meta = await getMailboxMetaByAddress(db, address as string);
+  const limit = Number.parseInt(String(body.limit ?? ''), 10);
+  const safeLimit =
+    Number.isFinite(limit) && limit > 0
+      ? Math.min(limit, 100)
+      : 50;
+
+  const db = getD1DB(c.env.DB);
+  const emails = await getEmailsByMessageTo(
+    db,
+    mailbox,
+    safeLimit,
+  );
+
+  return c.json(emails);
+});
+
+// 获取邮箱邮件统计：必须通过邮箱令牌验证
+api.post('/emails/meta', async (c) => {
+  if (!c.env.MAILBOX_TOKEN_SECRET) {
+    return c.json({
+      code: 'MAILBOX_AUTH_UNAVAILABLE',
+      message: 'Mailbox authorization is unavailable',
+    }, 503);
+  }
+
+  const token = getBearerToken(c.req.header('Authorization'));
+  const mailbox = token
+    ? await verifyMailboxToken(token, c.env.MAILBOX_TOKEN_SECRET)
+    : null;
+
+  if (
+    !mailbox ||
+    !isAllowedMailboxAddress(mailbox, c.env.EMAIL_DOMAIN)
+  ) {
+    return c.json({
+      code: 'MAILBOX_UNAUTHORIZED',
+      message: 'Mailbox authorization is invalid or expired',
+    }, 401);
+  }
+
+  let body: { address?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({
+      message: '错误的请求：请求体无效或为空。',
+    }, 400);
+  }
+
+  const address = body.address?.trim().toLowerCase();
+  if (address !== mailbox.toLowerCase()) {
+    return c.json({
+      code: 'MAILBOX_FORBIDDEN',
+      message: 'Mailbox does not match authorization',
+    }, 403);
+  }
+
+  const db = getD1DB(c.env.DB);
+  const meta = await getMailboxMetaByAddress(db, mailbox);
+
   return c.json(meta);
 });
 
 
-// 获取单封邮件详情
+// 获取单封邮件详情：验证令牌，并限制只能读取令牌所属邮箱的邮件
 api.get('/emails/:id', async (c) => {
+  if (!c.env.MAILBOX_TOKEN_SECRET) {
+    return c.json({
+      code: 'MAILBOX_AUTH_UNAVAILABLE',
+      message: 'Mailbox authorization is unavailable',
+    }, 503);
+  }
+
+  const token = getBearerToken(c.req.header('Authorization'));
+  const mailbox = token
+    ? await verifyMailboxToken(token, c.env.MAILBOX_TOKEN_SECRET)
+    : null;
+
+  if (
+    !mailbox ||
+    !isAllowedMailboxAddress(mailbox, c.env.EMAIL_DOMAIN)
+  ) {
+    return c.json({
+      code: 'MAILBOX_UNAUTHORIZED',
+      message: 'Mailbox authorization is invalid or expired',
+    }, 401);
+  }
+
   const db = getD1DB(c.env.DB);
   const { id } = c.req.param();
-  // 函数调用修正：使用 findEmailById 函数
-  const email = await findEmailById(db, id);
+
+  // 必须同时匹配邮件 ID 和令牌所属邮箱
+  const email = await findMailboxMessage(db, mailbox, id);
+
   if (!email) {
-    return c.json({ message: 'Email not found'}, 404);
+    // 不区分邮件不存在和邮件属于其他邮箱，避免泄露邮件信息
+    return c.json({ message: 'Email not found' }, 404);
   }
+
   return c.json(email);
 });
-
 // fix: 删除邮件接口不再需要 turnstile 验证，因为通常这是在已知邮箱上下文中操作的。
+// 批量删除邮件：验证令牌，并限制只能删除令牌所属邮箱的邮件
 api.post('/delete-emails', async (c) => {
-    const db = getD1DB(c.env.DB);
-    const body = await c.req.json();
-    const ids = body?.ids;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-        return c.json({ message: 'ids are required' }, 400);
-    }
-    const result = await deleteEmails(db, ids as string[]);
-    return c.json(result);
+  if (!c.env.MAILBOX_TOKEN_SECRET) {
+    return c.json({
+      code: 'MAILBOX_AUTH_UNAVAILABLE',
+      message: 'Mailbox authorization is unavailable',
+    }, 503);
+  }
+
+  const token = getBearerToken(c.req.header('Authorization'));
+  const mailbox = token
+    ? await verifyMailboxToken(token, c.env.MAILBOX_TOKEN_SECRET)
+    : null;
+
+  if (
+    !mailbox ||
+    !isAllowedMailboxAddress(mailbox, c.env.EMAIL_DOMAIN)
+  ) {
+    return c.json({
+      code: 'MAILBOX_UNAUTHORIZED',
+      message: 'Mailbox authorization is invalid or expired',
+    }, 401);
+  }
+
+  let body: { ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({
+      message: 'Invalid JSON request body',
+    }, 400);
+  }
+
+  const ids = body?.ids;
+
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.length > 100 ||
+    !ids.every(
+      (id): id is string =>
+        typeof id === 'string' &&
+        id.length > 0 &&
+        id.length <= 200,
+    )
+  ) {
+    return c.json({
+      code: 'INVALID_EMAIL_IDS',
+      message: 'Provide between 1 and 100 valid email IDs',
+    }, 400);
+  }
+
+  const db = getD1DB(c.env.DB);
+
+  // DAO 层同时匹配邮箱地址和邮件 ID，不能删除其他邮箱的邮件
+  const result = await deleteMailboxMessages(
+    db,
+    mailbox,
+    ids,
+  );
+
+  return c.json(result);
 });
 
 // 修复：移除登录接口的 turnstile 中间件，使其不再需要人机验证。
