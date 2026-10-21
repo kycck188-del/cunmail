@@ -133,18 +133,32 @@ export async function getEmailById(
 
 // 删除邮件
 // fix: 移除 deleteEmails 函数中的 token 参数
-export async function deleteEmails(ids: string[]): Promise<{ count: number }> {
+
+export async function deleteEmails(
+  ids: string[],
+  mailboxToken?: string,
+): Promise<{ count: number }> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (mailboxToken) {
+    headers.Authorization = `Bearer ${mailboxToken}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}/delete-emails`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    // fix: 请求体中只发送 ids
+    headers,
     body: JSON.stringify({ ids }),
   });
+
   if (!response.ok) {
     throw new Error("Failed to delete emails");
   }
+
   return response.json();
 }
+
 
 // feat: 添加密码登录函数
 // fix: 移除 token 参数，因为登录流程不再需要人机验证
